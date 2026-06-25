@@ -24,7 +24,7 @@ import webbrowser
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 from urllib.request import urlopen, Request
 
 try:
@@ -185,20 +185,29 @@ def parse_multipart_stream(rfile, boundary, save_dir, on_progress=None):
             hline = reader.readline()
 
         disp = headers.get("content-disposition", "")
-        fname_match = re.search(r'filename="([^"]*)"', disp)
-        if not fname_match:
-            # 无 filename 的普通表单字段：读到下一个 boundary 为止并丢弃
-            _drain_until_boundary(reader, boundary_bytes)
-            # 读取 boundary 行后的换行，准备下一轮
-            if not _consume_boundary_line(reader, end_marker):
-                break
-            continue
 
-        raw_name = fname_match.group(1)
-        try:
-            raw_name = unquote(raw_name)
-        except Exception:
-            pass
+        # 优先匹配 RFC 5987：filename*=UTF-8''xxx（浏览器主流方式）
+        fname_star = re.search(r"filename\*=(?:UTF-8|utf-8)''([^;]*)", disp)
+        if fname_star:
+            raw_name = unquote(fname_star.group(1).strip())
+        else:
+            # 回退到旧格式 filename="xxx"
+            fname_match = re.search(r'filename="([^"]*)"', disp)
+            if not fname_match:
+                # 无 filename 的普通表单字段：读到下一个 boundary 为止并丢弃
+                _drain_until_boundary(reader, boundary_bytes)
+                # 读取 boundary 行后的换行，准备下一轮
+                if not _consume_boundary_line(reader, end_marker):
+                    break
+                continue
+            raw_name = fname_match.group(1)
+            # 如果看起来是百分号编码的，解码一下
+            if "%" in raw_name:
+                try:
+                    raw_name = unquote(raw_name, encoding="utf-8")
+                except Exception:
+                    pass
+
         filename = safe_filename(raw_name)
         target_path = unique_path(save_dir, filename)
         ok = _stream_one_file_body(reader, boundary_bytes, target_path, on_progress)
@@ -408,9 +417,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(size))
+            # RFC 5987: filename*=UTF-8''percent-encoded
+            encoded_name = quote(name, safe="")
             self.send_header(
                 "Content-Disposition",
-                f'attachment; filename="{name}"; filename*=UTF-8\'\'{name}',
+                f"attachment; filename*=UTF-8''{encoded_name}",
             )
             self.end_headers()
             with open(full, "rb") as f:
