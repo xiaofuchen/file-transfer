@@ -843,10 +843,21 @@ class GuiApp:
                              highlightbackground="#e6e9f2", highlightcolor="#e6e9f2")
         info_card.pack(pady=(0, 8), padx=20, fill=tk.X)
 
+        # 共享目录（路径 + 「打开文件夹」按钮）
+        share_frame = tk.Frame(info_card, bg=self.card)
+        share_frame.pack(fill=tk.X, padx=14, pady=(10, 0))
+        # 按钮先 pack 到右侧，标签再填充左侧剩余空间
+        open_btn = tk.Button(
+            share_frame, text="\U0001F4C2 打开文件夹",
+            font=("Microsoft YaHei", 9), bg=self.card, fg=self.primary,
+            bd=0, cursor="hand2", activebackground="#eef3ff",
+            activeforeground=self.primary, command=self._open_share_dir,
+        )
+        open_btn.pack(side=tk.RIGHT)
         tk.Label(
-            info_card, text=f"\U0001F4C1 共享目录：{self.share_dir}",
+            share_frame, text=f"\U0001F4C1 共享目录：{self.share_dir}",
             font=("Microsoft YaHei", 9), bg=self.card, fg=self.muted, anchor="w",
-        ).pack(fill=tk.X, padx=14, pady=(10, 0))
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         tk.Label(
             info_card,
@@ -901,6 +912,22 @@ class GuiApp:
         self.root.clipboard_clear()
         self.root.clipboard_append(self.url)
         self._log("\u2714 地址已复制到剪贴板", self.ok)
+
+    def _open_share_dir(self):
+        """用系统文件管理器打开共享目录"""
+        path = self.share_dir
+        try:
+            if sys.platform == "win32":
+                os.startfile(path)
+            elif sys.platform == "darwin":
+                import subprocess
+                subprocess.Popen(["open", path])
+            else:
+                import subprocess
+                subprocess.Popen(["xdg-open", path])
+            self._log(f"\U0001F4C2 已打开文件夹：{path}", self.ok)
+        except Exception as e:
+            self._log(f"\u26a0\ufe0f 无法打开文件夹：{e}", self.err)
 
     def _log(self, msg, color=None):
         self.log_text.configure(state=tk.NORMAL)
